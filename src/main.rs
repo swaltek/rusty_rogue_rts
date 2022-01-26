@@ -53,7 +53,10 @@ fn main() -> rltk::BError{
     let mut world = World::new();
 
     let (size_x, size_y) = context.get_char_size();
-    let map = MapGenerator{rows: size_x, cols: size_y }.generate_blank();
+    let mut map_gen = MapGenerator::new(size_x, size_y);
+    map_gen.gold_count = 64;
+    map_gen.gold_size = 6;
+    let map = map_gen.generate();
     //let mut map = Map::new(size_x, size_y);
 
     world.spawn((Name("Karen".to_string()),));
