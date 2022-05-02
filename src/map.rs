@@ -9,6 +9,25 @@ pub struct Tile {
     pub walkable: bool,
 }
 
+pub fn blank_tile() -> Tile{
+    Tile {
+        fg: RGB::named(rltk::WHITE),
+        bg: RGB::named(rltk::GREY),
+        ch: ' ' as u16,
+        walkable: false
+    }
+}
+
+pub fn default_wall() -> Tile{
+    Tile {
+        fg: RGB::named(rltk::WHITE),
+        bg: RGB::named(rltk::GREY),
+        ch: '#' as u16,
+        walkable: false
+    }
+}
+
+#[derive(Clone)]
 pub struct Map {
     vec: Vec<Vec<Tile>>,
     rows: usize,
@@ -17,14 +36,8 @@ pub struct Map {
 
 impl Map{
     pub fn new(rows: usize, cols: usize) -> Self {
-        let blank_tile = Tile {
-            fg: RGB::named(rltk::WHITE),
-            bg: RGB::named(rltk::GREY),
-            ch: '#' as u16,
-            walkable: false
-        };
 
-        let vec = vec![vec![blank_tile ; cols]; rows];
+        let vec = vec![vec![default_wall() ; cols]; rows];
         Self { vec ,rows, cols }
     }
 
@@ -46,6 +59,17 @@ impl Map{
         true
     }
 }
+
+fn clear_room(map: Map, y: u32, x: u32, rows: u32, cols: u32) -> Map{
+    let mut ret_map = map.clone();
+    for xi in x..(x+cols){
+        for yi in y..(y+rows){
+            ret_map.set(yi.try_into().unwrap(), xi.try_into().unwrap(), blank_tile());
+        }
+    }
+    ret_map
+}
+
 
 pub struct MapGenerator{
     pub rows: usize,
@@ -97,7 +121,11 @@ impl MapGenerator{
             }
         }
 
-        map
+        const INIT_ROOM_SIZE: u32 = 10;
+        clear_room(map,
+            self.rows as u32/2 - (INIT_ROOM_SIZE/2),
+            self.cols as u32/2 - (INIT_ROOM_SIZE/2),
+            INIT_ROOM_SIZE, INIT_ROOM_SIZE)
     }
 
 }
