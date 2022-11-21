@@ -14,7 +14,7 @@ pub fn blank_tile() -> Tile{
         fg: RGB::named(rltk::WHITE),
         bg: RGB::named(rltk::GREY),
         ch: ' ' as u16,
-        walkable: false
+        walkable: true
     }
 }
 

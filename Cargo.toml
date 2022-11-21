@@ -7,4 +7,4 @@ edition = "2021"
 
 [dependencies]
 rltk = { version = "0.8.0" }
-hecs = "0.7.1"
+specs = { version = "0.16.1", features = ["specs-derive"] }

@@ -1,0 +1,191 @@
+diff --git a/Cargo.toml b/Cargo.toml
+index da06614..6b42726 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -7,4 +7,4 @@ edition = "2021"
+ 
+ [dependencies]
+ rltk = { version = "0.8.0" }
+-hecs = "0.7.1"
++specs = { version = "0.16.1", features = ["specs-derive"] }
+diff --git a/src/main.rs b/src/main.rs
+index b6e45ce..68aaf2c 100644
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -1,46 +1,97 @@
+ use rltk::{Rltk, GameState};
++use rltk::RandomNumberGenerator;
+ //use rltk::RGB;
+-use hecs::World;
++use specs::{World, WorldExt, Builder};
++use specs::{Component, VecStorage};
++
++use std::time;
++use std::collections::HashMap;
+ 
+ mod map;
+ use map::Map;
+ use map::MapGenerator;
+ 
+-struct State {
+-    world: World,
+-    map: Map,
++#[derive(Component, Debug)]
++#[storage(VecStorage)]
++struct Transform{
++    r: usize,
++    c: usize,
++    ch: u16,
++    color: rltk::RGB
++}
++
++enum Task{
++    Idle,
++}
++
++#[derive(Component)]
++#[storage(VecStorage)]
++struct Worker{
++    task: Task,
+ }
+ 
+-#[derive(Debug)]
+-struct Name ( String );
++use specs::{ReadStorage, System};
++struct WorkManager;
++
++impl<'a> System<'a> for WorkManager{
++    type SystemData = ReadStorage<'a, Transform>;
++
++    fn run(&mut self, transform: Self::SystemData){
++        use specs::Join;
++        for transform in transform.join() {
++            println!("Hello, {:?}!", transform);
++        }
++    }
++}
+ 
+ /*
+-struct Transform{
+-    x: i32,
+-    y: i32,
+-    c: char,
++struct Event{
++    entity_id: u32,
++    name: String,
++    execute_time: std::time::Instant,
++    action: fn(),
+ }
+ */
+ 
++struct State {
++    //events: HashMap<u32,Vec<Event>>,
++    world: World,
++    map: Map,
++}
++
++impl State {
++    fn run_systems(&mut self) {
++        let mut wm = WorkManager{};
++        wm.run_now(&self.world);
++        self.ecs.maintain();
++    }
++    /*pub fn add_event(entity_id: u32, event: Event){
++    }*/
++    /*
++    fn random_walk(&self,transform: &mut Transform, rand: RandomNumberGenerator) {
++            let (r, c) = (transform.r, transform.c);
++            let new_pos = match rand.range::<i32>(0, 4) {
++                0 => (r + 1, c),
++                1 => (r - 1, c),
++                2 => (r, c + 1),
++                3 => (r, c - 1),
++                _ => panic!("rand.range in worker move returned weird value")
++            };
++
++            if self.map.at(new_pos.0, new_pos.1).walkable {
++                (transform.r, transform.c) = new_pos;
++            }
++    }
++    */
++}
+ 
+ impl GameState for State {
+     fn tick(&mut self, ctx : &mut Rltk) {
+-        ctx.cls();
+-        ctx.print(1, 1, "Hello Rust World");
+-
++        let mut rand = RandomNumberGenerator::new();
+ 
+-        for r in (0..).take_while(|i| i < self.map.rows()) {
+-            for c in (0..).take_while(|i| i < self.map.cols()) {
+-                let tile = &self.map.at(r,c);
+-                ctx.set(r,c,tile.fg, tile.bg, tile.ch);
+-            }
+-        }
++        ctx.cls();
+ 
+-        let mut line_num = 2;
+-        for (id, name) in &mut self.world.query::<&Name>() {
+-            ctx.print(1, line_num, format!("Hello, {}! ID: {:?}", name.0, id));
+-            line_num += 1;
+-        }
++        self.run_systems();
+     }
+ }
+ 
+@@ -48,9 +99,12 @@ fn main() -> rltk::BError{
+     use rltk::RltkBuilder;
+     let context = RltkBuilder::simple80x50()
+         .with_title("Rougelike Tutorial")
++        .with_fps_cap(30.0)
+         .build()?;
+ 
+     let mut world = World::new();
++    world.register::<Transform>();
++    world.register::<Worker>();
+ 
+     let (size_x, size_y) = context.get_char_size();
+     let mut map_gen = MapGenerator::new(size_x, size_y);
+@@ -59,12 +113,22 @@ fn main() -> rltk::BError{
+     let map = map_gen.generate();
+     //let mut map = Map::new(size_x, size_y);
+ 
+-    world.spawn((Name("Karen".to_string()),));
+-    world.spawn((Name("Loren".to_string()),));
+-    world.spawn((Name("Charlie".to_string()),));
+-    world.spawn((Name("Justin".to_string()),));
+-
+-    let gs = State{world: world, map: map};
++    world.create_entity().with(Transform {
++                    r: usize::try_from(size_x).unwrap() / 2,
++                    c: usize::try_from(size_y).unwrap() / 2,
++                    ch: '@' as u16,
++                    color: rltk::RGB::named(rltk::RED)
++                }).with(
++                    Worker {
++                        task: Task::Idle
++                    },
++                ).build();
++
++    let gs = State{
++        //events: HashMap::new(),
++        world: world,
++        map: map
++    };
+ 
+ 
+     rltk::main_loop(context, gs)
+diff --git a/src/map.rs b/src/map.rs
+index 8ce139c..e419a86 100644
+--- a/src/map.rs
++++ b/src/map.rs
+@@ -14,7 +14,7 @@ pub fn blank_tile() -> Tile{
+         fg: RGB::named(rltk::WHITE),
+         bg: RGB::named(rltk::GREY),
+         ch: ' ' as u16,
+-        walkable: false
++        walkable: true
+     }
+ }
+ 
