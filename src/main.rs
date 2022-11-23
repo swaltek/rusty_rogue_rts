@@ -8,77 +8,114 @@ mod map;
 use map::Map;
 use map::MapGenerator;
 
+mod time;
+use time::{Actor, ActionType};
+
 #[derive(Component, Debug)]
 #[storage(VecStorage)]
-struct Transform{
-    r: usize,
-    c: usize,
+pub struct Transform{
+    r: u32,
+    c: u32,
     ch: u16,
     color: rltk::RGB
 }
 
-enum Task{
-    Idle,
-}
 
 #[derive(Component)]
 #[storage(VecStorage)]
 struct Worker{
-    task: Task,
+    task: WorkerTask,
+}
+
+enum WorkerTask{
+    Idle,
 }
 
 use specs::System;
-use specs::{ReadExpect, ReadStorage, WriteStorage};
+use specs::{Write, ReadExpect, WriteExpect, ReadStorage, WriteStorage};
 use specs::{RunNow};
+
 struct WorkManager;
 
 impl<'a> System<'a> for WorkManager{
     type SystemData = ( ReadExpect<'a, Map>,
                         ReadStorage<'a, Worker>,
-                        WriteStorage<'a, Transform>);
+                        WriteStorage<'a, Actor>);
 
     fn run(&mut self, data: Self::SystemData){
         let mut rand = RandomNumberGenerator::new();
-        let (map, worker, mut trans) = data;
+        let (map, worker, mut actors) = data;
 
-        for (worker, transform) in (&worker, &mut trans).join() {
-            let (r ,c ) = (&mut transform.r, &mut transform.c);
+        for (worker, act) in (&worker, &mut actors).join() {
             match &worker.task {
-                Task::Idle => {
-                    let new_pos = match rand.range::<i32>(0, 4) {
-                        0 => (*r + 1, *c),
-                        1 => (*r - 1, *c),
-                        2 => (*r, *c + 1),
-                        3 => (*r, *c - 1),
+                WorkerTask::Idle => {
+                    let (dr, dc) = match rand.range::<i32>(0, 4) {
+                        0 => (1, 0),
+                        1 => (-1, 0),
+                        2 => (0, 1),
+                        3 => (0, -1),
                         _ => panic!("rand.range in worker move returned weird value")
                     };
-
-                    if map.at(new_pos.0, new_pos.1).walkable {
-                       (*r, *c) = new_pos;
+                    if !act.is_busy() {
+                        act.new_action(ActionType::Move(dr, dc));
                     }
                 },
             }
         }
     }
 }
-/*
-struct Event{
-    entity_id: u32,
-    name: String,
-    execute_time: std::time::Instant,
-    action: fn(),
+
+#[derive(Component)]
+#[storage(VecStorage)]
+struct Selectable{
+    selected: bool,
 }
-*/
+
+struct SelectEvent(Option<(u32, u32, u32, u32)>); // r, c, w, h
+impl Default for SelectEvent {
+    fn default() -> Self {
+        Self(None)
+    }
+}
+
+struct SelectHandler;
+
+impl<'a> System<'a> for SelectHandler{
+    type SystemData = ( Write<'a, SelectEvent>,
+                        ReadStorage<'a, Transform>,
+                        WriteStorage<'a, Selectable>);
+
+    fn run(&mut self, data: Self::SystemData){
+        let (mut select_event, trans,mut selectable) = data;
+        if let SelectEvent(Some((select_r, select_c, select_w, select_h))) = *select_event {
+            for (transform, select) in (&trans, &mut selectable).join() {
+                if transform.r >= select_r && transform.r <= select_r + select_w
+                    && transform.c >= select_c && transform.c <= select_c + select_h {
+                        select.selected = true;
+                }
+                else {
+                    select.selected = false;
+                }
+            }
+            *select_event = SelectEvent(None);
+        }
+    }
+}
 
 struct State {
     ecs: World,
     is_mining: bool,
+    select_start: Option<(i32, i32)>,
 }
 
 impl State {
     fn run_systems(&mut self) {
         let mut wm = WorkManager{};
+        let mut sh = SelectHandler{};
+        let mut tm = time::TimeManager{};
         wm.run_now(&self.ecs);
+        sh.run_now(&self.ecs);
+        tm.run_now(&self.ecs);
         self.ecs.maintain();
     }
     fn player_input(&mut self, ctx: &mut Rltk){
@@ -91,25 +128,21 @@ impl State {
                     _ => {},
                 }
         }
-    }
-    /*pub fn add_event(entity_id: u32, event: Event){
-    }*/
-    /*
-    fn random_walk(&self,transform: &mut Transform, rand: RandomNumberGenerator) {
-            let (r, c) = (transform.r, transform.c);
-            let new_pos = match rand.range::<i32>(0, 4) {
-                0 => (r + 1, c),
-                1 => (r - 1, c),
-                2 => (r, c + 1),
-                3 => (r, c - 1),
-                _ => panic!("rand.range in worker move returned weird value")
-            };
-
-            if self.map.at(new_pos.0, new_pos.1).walkable {
-                (transform.r, transform.c) = new_pos;
+        if ctx.left_click {
+            self.select_start = match self.select_start {
+                None => Some(ctx.mouse_pos()),
+                Some((select_r, select_c)) => {
+                    use std::cmp::min;
+                    let (mouse_r, mouse_c) = ctx.mouse_pos();
+                    let (box_r, box_c) = (min(select_r, mouse_r) ,min(select_c, mouse_c));
+                    let (box_w, box_h) = ((select_r - mouse_r).abs(), (select_c - mouse_c).abs());
+                    let dimensions: (u32, u32, u32, u32) = (box_r.try_into().unwrap(), box_c.try_into().unwrap(), box_w.try_into().unwrap(), box_h.try_into().unwrap());
+                    *self.ecs.write_resource::<SelectEvent>() = SelectEvent(Some(dimensions));
+                    None
+                },
             }
+        }
     }
-    */
 }
 
 impl GameState for State {
@@ -121,8 +154,8 @@ impl GameState for State {
         //let rand = RandomNumberGenerator::new();
         let map = self.ecs.fetch::<Map>();
 
-        for r in (0..).take_while(|i| i < map.rows()) {
-            for c in (0..).take_while(|i| i < map.cols()) {
+        for r in (0..).take_while(|i| i < &map.rows()) {
+            for c in (0..).take_while(|i| i < &map.cols()) {
                 let tile = &map.at(r,c);
                 ctx.set(r,c,tile.fg, tile.bg, tile.ch);
             }
@@ -131,16 +164,31 @@ impl GameState for State {
         if self.is_mining {
             ctx.print_color_centered_at(SCREEN_WIDTH /2, 0,  rltk::RGB::named(rltk::RED), rltk::RGB::named(rltk::BLACK)," * Mining * ");
         }
-
-        for transform in self.ecs.read_storage::<Transform>().join(){
-            let (r, c) =  (transform.r , transform.c);
-            ctx.set(r, c, transform.color, map.at(r, c).bg, transform.ch);
+        if let Some((select_r, select_c)) = self.select_start {
+            use std::cmp::min;
+            let (mouse_r, mouse_c) = ctx.mouse_pos();
+            let (box_r, box_c) = (min(select_r, mouse_r) ,min(select_c, mouse_c));
+            let (box_w, box_h) = ((select_r - mouse_r).abs(), (select_c - mouse_c).abs());
+            ctx.draw_hollow_box(box_r, box_c, box_w, box_h, rltk::RGB::named(rltk::YELLOW), rltk::RGB::named(rltk::GRAY));
         }
+
+
+        let (tran_storage, sel_storage) = (self.ecs.read_storage::<Transform>(), self.ecs.read_storage::<Selectable>());
+        for (transform, selectable) in (&tran_storage, (&sel_storage).maybe()).join(){
+            let (r, c) =  (transform.r , transform.c);
+            let mut bg_color = map.at(r, c).bg;
+            if let Some(select) = selectable {
+                if select.selected {
+                    bg_color = rltk::RGB::named(rltk::YELLOW);
+                }
+            }
+            ctx.set(r, c, transform.color, bg_color, transform.ch);
+        }
+
     }
 }
-
 const SCREEN_WIDTH: i32 = 80;
-const SCREEN_HEIGHT: i32 = 50;
+const _SCREEN_HEIGHT: i32 = 50;
 
 fn main() -> rltk::BError{
     use rltk::RltkBuilder;
@@ -157,24 +205,34 @@ fn main() -> rltk::BError{
     //let mut map = Map::new(size_x, size_y);
 
     let mut world = World::new();
+    world.register::<Actor>();
     world.register::<Transform>();
     world.register::<Worker>();
+    world.register::<Selectable>();
     world.insert(map);
+    world.insert(SelectEvent(None));
 
     world.create_entity().with(Transform {
-                    r: usize::try_from(size_x).unwrap() / 2,
-                    c: usize::try_from(size_y).unwrap() / 2,
+                    r: size_x / 2,
+                    c: size_y / 2,
                     ch: '@' as u16,
                     color: rltk::RGB::named(rltk::RED)
                 }).with(
                     Worker {
-                        task: Task::Idle
+                        task: WorkerTask::Idle
                     },
+                ).with(
+                    Selectable{
+                        selected: false,
+                    }
+                ).with(
+                    Actor::new(1)
                 ).build();
 
     let gs = State{
         ecs: world,
         is_mining: false,
+        select_start: None,
     };
 
 

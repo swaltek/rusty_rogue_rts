@@ -41,13 +41,14 @@ impl Map{
         Self { vec ,rows, cols }
     }
 
-    pub fn rows(&self) -> &usize {
-        &self.rows
+    pub fn rows(&self) -> u32 {
+        self.rows.try_into().unwrap()
     }
-    pub fn cols(&self) -> &usize {
-        &self.cols
+    pub fn cols(&self) -> u32 {
+        self.cols.try_into().unwrap()
     }
-    pub fn at(&self, y: usize, x: usize) -> &Tile{
+    pub fn at(&self, r: u32, c: u32) -> &Tile{
+        let (y, x) : (usize, usize) = (r.try_into().unwrap(), c.try_into().unwrap());
         &self.vec[y][x]
     }
     pub fn set(&mut self, y: usize, x: usize, tile: Tile){
