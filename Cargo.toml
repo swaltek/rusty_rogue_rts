@@ -7,4 +7,5 @@ edition = "2021"
 
 [dependencies]
 rltk = { version = "0.8.0" }
+bracket-lib = "~0.8"
 specs = { version = "0.16.1", features = ["specs-derive"] }
